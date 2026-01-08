@@ -280,9 +280,14 @@ async def chat(message: ChatMessage):
         chatbot = get_chatbot()
         response = chatbot.answer_question(message.message, message.claim_id)
         
-        # Save chat history
+        # Save chat history only if claim exists
         if message.claim_id:
-            save_chat_message(message.claim_id, message.message, response["answer"])
+            claim = get_claim(message.claim_id)
+            if claim:
+                try:
+                    save_chat_message(message.claim_id, message.message, response["answer"])
+                except Exception as e:
+                    print(f"Warning: Could not save chat history: {e}")
         
         return ChatResponse(
             answer=response["answer"],

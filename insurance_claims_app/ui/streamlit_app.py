@@ -340,6 +340,28 @@ with tab3:
     if "messages" not in st.session_state:
         st.session_state.messages = []
     
+    # Process pending question from quick buttons (must be before display)
+    if "pending_question" in st.session_state and st.session_state.pending_question:
+        question = st.session_state.pending_question
+        st.session_state.pending_question = None
+        
+        # Get claim_id from session state
+        claim_id = st.session_state.get("chat_claim_id", None)
+        if claim_id == "":
+            claim_id = None
+        
+        # Make API call
+        try:
+            payload = {"claim_id": claim_id, "message": question}
+            response = requests.post(f"{API_BASE_URL}/chat", json=payload, timeout=120)
+            if response.status_code == 200:
+                result = response.json()
+                st.session_state.messages.append({"role": "assistant", "content": result["answer"]})
+            else:
+                st.session_state.messages.append({"role": "assistant", "content": "Sorry, I encountered an error."})
+        except Exception as e:
+            st.session_state.messages.append({"role": "assistant", "content": f"Error: {str(e)}"})
+    
     # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -352,16 +374,21 @@ with tab3:
         with st.chat_message("user"):
             st.markdown(prompt)
         
+        # Get claim_id from session state
+        claim_id = st.session_state.get("chat_claim_id", None)
+        if claim_id == "":
+            claim_id = None
+        
         # Get bot response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
                     payload = {
-                        "claim_id": chat_claim_id if chat_claim_id else None,
+                        "claim_id": claim_id,
                         "message": prompt
                     }
                     
-                    response = requests.post(f"{API_BASE_URL}/chat", json=payload)
+                    response = requests.post(f"{API_BASE_URL}/chat", json=payload, timeout=120)
                     
                     if response.status_code == 200:
                         result = response.json()
@@ -405,7 +432,9 @@ with tab3:
         col = [col1, col2, col3][i % 3]
         with col:
             if st.button(question, key=f"quick_{i}", use_container_width=True):
+                # Add user message and set pending question
                 st.session_state.messages.append({"role": "user", "content": question})
+                st.session_state.pending_question = question
                 st.rerun()
     
     # Clear chat button
