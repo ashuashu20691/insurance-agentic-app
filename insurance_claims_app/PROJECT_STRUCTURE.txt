@@ -1,0 +1,307 @@
+INSURANCE CLAIMS PROCESSING - PROJECT STRUCTURE
+================================================
+
+insurance_claims_app/
+│
+├── 📄 Configuration & Setup
+│   ├── .env                          # Environment variables (Oracle creds, API keys)
+│   ├── .env.example                  # Environment template
+│   ├── config.py                     # Configuration loader
+│   ├── requirements.txt              # Python dependencies
+│   └── setup_oracle_user.sql         # Oracle user setup script
+│
+├── 📚 Documentation
+│   ├── README.md                     # Main documentation
+│   ├── QUICK_START.md                # Quick start guide
+│   ├── SETUP_INSTRUCTIONS.md         # Oracle setup instructions
+│   ├── PROJECT_SUMMARY.md            # Complete project summary
+│   └── PROJECT_STRUCTURE.txt         # This file
+│
+├── 🤖 Agents (LangGraph Multi-Agent System)
+│   ├── __init__.py
+│   ├── state.py                      # State definition for workflow
+│   ├── validation_agent.py           # Agent 1: Claims validation
+│   ├── approval_agent.py             # Agent 2: Claims approval & payout
+│   ├── chatbot_agent.py              # Agent 3: RAG-powered chatbot
+│   └── workflow.py                   # LangGraph workflow orchestration
+│
+├── 🗄️ Database (Oracle Integration)
+│   ├── __init__.py
+│   ├── models.py                     # Database schema & connection pool
+│   └── crud.py                       # CRUD operations (Create/Read/Update)
+│
+├── 🔌 External APIs (Mock Implementations)
+│   ├── __init__.py
+│   ├── car_damage_api.py             # Car damage detection (Arya.ai style)
+│   ├── fraud_scoring_api.py          # Fraud scoring (Fraud.ai style)
+│   ├── policy_management_api.py      # Policy management (Vertafore style)
+│   ├── payment_api.py                # Payment processing
+│   └── document_api.py               # Document management for RAG
+│
+├── 🌐 API (FastAPI Backend)
+│   ├── __init__.py
+│   └── main.py                       # REST API endpoints
+│
+├── 🖥️ UI (Streamlit Frontend)
+│   ├── __init__.py
+│   └── streamlit_app.py              # Web interface (3 pages)
+│
+├── 🧪 Tests
+│   ├── __init__.py
+│   ├── test_workflow.py              # Workflow test scenarios (6 tests)
+│   ├── test_db_connection.py         # Database connection test
+│   └── test_complete_system.py       # End-to-end system test
+│
+├── 🚀 Run Scripts
+│   ├── run_api.py                    # Start FastAPI server
+│   └── run_ui.py                     # Start Streamlit UI
+│
+└── 📦 Virtual Environment
+    └── venv/                         # Python virtual environment
+
+
+COMPONENT DETAILS
+=================
+
+1. AGENTS (agents/)
+   ├── validation_agent.py (250 lines)
+   │   ├── Validates claim eligibility
+   │   ├── Checks: timeline, policy status, coverage, documents, estimate
+   │   └── Returns: VALID/INVALID with detailed reasons
+   │
+   ├── approval_agent.py (180 lines)
+   │   ├── Calls Car Damage API for assessment
+   │   ├── Calls Fraud Scoring API for risk analysis
+   │   ├── Makes approval decision based on fraud score
+   │   ├── Calculates payout: (damage - deductible) capped at limit
+   │   └── Sets processing time: 2-10 days based on risk
+   │
+   ├── chatbot_agent.py (280 lines)
+   │   ├── RAG-powered Q&A using ChromaDB
+   │   ├── OCI GenAI (Cohere Command-A model)
+   │   ├── Answers questions about coverage, deductibles, payouts
+   │   └── Retrieves claim data for context
+   │
+   └── workflow.py (80 lines)
+       ├── LangGraph workflow definition
+       ├── Flow: Validation → Approval → END
+       └── State management between agents
+
+2. DATABASE (database/)
+   ├── models.py (180 lines)
+   │   ├── Oracle connection pooling
+   │   ├── Tables: claims, policies, chat_history
+   │   ├── Wallet support for Autonomous DB
+   │   └── Sample policy seeding
+   │
+   └── crud.py (150 lines)
+       ├── create_claim(), get_claim(), update_claim()
+       ├── get_policy(), get_all_policies()
+       └── save_chat_message(), get_chat_history()
+
+3. EXTERNAL APIs (external_apis/)
+   ├── car_damage_api.py (100 lines)
+   │   └── Mock Arya.ai - damage assessment & repair cost
+   │
+   ├── fraud_scoring_api.py (120 lines)
+   │   └── Mock Fraud.ai - fraud score (0-1) & risk indicators
+   │
+   ├── policy_management_api.py (150 lines)
+   │   └── Mock Vertafore - policy details & coverage check
+   │
+   ├── payment_api.py (60 lines)
+   │   └── Payment processing & status tracking
+   │
+   └── document_api.py (180 lines)
+       └── Policy documents for RAG (6 document types)
+
+4. API (api/)
+   └── main.py (250 lines)
+       ├── POST /submit-claim - Submit & process claim
+       ├── GET /claim/{id} - Get claim status
+       ├── GET /claims - List all claims
+       ├── POST /chat - Chatbot interaction
+       ├── GET /chat-history/{id} - Chat history
+       ├── GET /policy/{id} - Policy details
+       ├── GET /policies - List policies
+       └── GET /health - Health check
+
+5. UI (ui/)
+   └── streamlit_app.py (450 lines)
+       ├── Page 1: Submit Claim
+       │   ├── Form with policy, dates, damage amount
+       │   ├── Document upload
+       │   └── Real-time results display
+       │
+       ├── Page 2: Track Claim
+       │   ├── Search by claim ID
+       │   ├── Status display with color coding
+       │   └── Financial details & validation results
+       │
+       └── Page 3: Chatbot
+           ├── Chat interface with history
+           ├── Quick question buttons
+           └── Source attribution
+
+6. TESTS (tests/)
+   ├── test_workflow.py (300 lines)
+   │   ├── Test 1: Valid claim (should approve)
+   │   ├── Test 2: Late filing (should deny)
+   │   ├── Test 3: Inactive policy (should deny)
+   │   ├── Test 4: Coverage mismatch (should deny)
+   │   ├── Test 5: Missing documents (should deny)
+   │   └── Test 6: High value claim (may need review)
+   │
+   ├── test_db_connection.py (60 lines)
+   │   └── Tests Oracle connection & basic queries
+   │
+   └── test_complete_system.py (200 lines)
+       ├── Tests all components end-to-end
+       ├── Validates database, APIs, agents
+       └── Runs sample claim through workflow
+
+
+DATABASE SCHEMA
+===============
+
+CLAIMS Table:
+  - claim_id (PK)
+  - policy_id, customer_id
+  - incident_date, claim_date
+  - claim_type (collision/comprehensive/liability)
+  - damage_description, repair_shop
+  - estimated_damage_amount
+  - validation_status, validation_reason, validation_results
+  - fraud_score, fraud_flags
+  - approval_status, approval_reason
+  - payout_amount, deductible
+  - processing_time_days
+  - damage_photos, incident_report, repair_estimate
+  - created_at, updated_at
+
+POLICIES Table:
+  - policy_id (PK)
+  - customer_id
+  - coverage_type, coverage_limit, deductible
+  - is_active
+  - start_date, end_date
+  - riders (JSON)
+  - policy_document (BLOB)
+  - created_at
+
+CHAT_HISTORY Table:
+  - chat_id (PK)
+  - claim_id (FK)
+  - customer_message, bot_response
+  - timestamp
+
+
+WORKFLOW LOGIC
+==============
+
+Validation Checks:
+  ✓ Claim filed within 30 days
+  ✓ Policy active on incident date
+  ✓ Claim type matches coverage
+  ✓ All documents submitted
+  ✓ Damage estimate reasonable
+
+Approval Decision:
+  • Fraud > 0.7 → NEEDS_REVIEW
+  • Fraud 0.4-0.7 → APPROVED (monitored)
+  • Fraud < 0.4 → AUTO_APPROVED
+
+Payout Calculation:
+  payout = min(damage - deductible, coverage_limit)
+
+Processing Time:
+  • Fraud < 0.2 → 2 days
+  • Fraud < 0.5 → 5 days
+  • Fraud > 0.5 → 10 days
+
+
+DEPENDENCIES
+============
+
+Core:
+  - langchain, langgraph, langchain-community
+  - oci (Oracle Cloud Infrastructure SDK)
+  - oracledb (Oracle Database driver)
+
+Backend:
+  - fastapi, uvicorn
+  - pydantic
+
+Frontend:
+  - streamlit
+
+AI/ML:
+  - chromadb (vector store)
+  - sentence-transformers (embeddings)
+
+Utilities:
+  - python-dotenv
+  - httpx
+
+
+SAMPLE DATA
+===========
+
+Policies:
+  POL-001: Comprehensive, $50K limit, $500 deductible, Active
+  POL-002: Collision, $30K limit, $1000 deductible, Active
+  POL-003: Liability, $100K limit, $250 deductible, Inactive
+
+
+RUNNING THE APPLICATION
+========================
+
+1. Fix Oracle Password:
+   sqlplus sys/password@DSN as sysdba
+   ALTER USER testuser IDENTIFIED BY Password123 ACCOUNT UNLOCK;
+
+2. Test Database:
+   ./venv/bin/python test_db_connection.py
+
+3. Run System Test:
+   ./venv/bin/python test_complete_system.py
+
+4. Install Dependencies:
+   ./venv/bin/pip install -r requirements.txt
+
+5. Start API (Terminal 1):
+   ./venv/bin/python run_api.py
+   → http://localhost:8000
+
+6. Start UI (Terminal 2):
+   ./venv/bin/python run_ui.py
+   → http://localhost:8501
+
+
+PROJECT STATISTICS
+==================
+
+Total Files: 33
+Python Files: 25
+Documentation: 5
+Configuration: 3
+
+Lines of Code:
+  - Agents: ~800 lines
+  - Database: ~330 lines
+  - External APIs: ~610 lines
+  - API: ~250 lines
+  - UI: ~450 lines
+  - Tests: ~560 lines
+  - Total: ~3,500+ lines
+
+Features:
+  - 3 AI Agents
+  - 8 REST Endpoints
+  - 3 Database Tables
+  - 5 External API Integrations
+  - 6 Test Scenarios
+  - 3 UI Pages
+
+
+STATUS: ✅ COMPLETE - Ready for testing after Oracle password reset
