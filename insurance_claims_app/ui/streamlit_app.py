@@ -1,6 +1,6 @@
 """
 Streamlit Frontend for Insurance Claims Processing
-Enhanced UI with modern design
+Enhanced UI with modern design and workflow visualization
 """
 import streamlit as st
 import requests
@@ -213,6 +213,33 @@ st.markdown("""
     ::-webkit-scrollbar-thumb:hover {
         background: #a1a1a1;
     }
+    
+    /* Architecture tab styling */
+    .agent-card {
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .agent-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    }
+    
+    .workflow-diagram {
+        background: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 12px;
+        font-family: monospace;
+        overflow-x: auto;
+    }
+    
+    .tech-badge {
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        background: #e9ecef;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        margin: 0.2rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -225,7 +252,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Create tabs with icons
-tab1, tab2, tab3 = st.tabs(["📝 Submit Claim", "🔍 Track Claim", "💬 AI Assistant"])
+tab1, tab2, tab3, tab4 = st.tabs(["📝 Submit Claim", "🔍 Track Claim", "💬 AI Assistant", "🏗️ System Architecture"])
 
 # Tab 1: Submit Claim
 with tab1:
@@ -444,6 +471,41 @@ with tab1:
                                     else:
                                         st.success("✅ Low Risk - Auto-approved")
                             
+                            # Supervisor Workflow Info (NEW)
+                            if result.get("supervisor_priority") or result.get("workflow_history"):
+                                st.markdown("### 🎯 AI Workflow Analysis")
+                                
+                                col_w1, col_w2, col_w3 = st.columns(3)
+                                
+                                with col_w1:
+                                    priority = result.get("supervisor_priority", "N/A")
+                                    priority_colors = {"low": "🟢", "medium": "🟡", "high": "🟠", "critical": "🔴"}
+                                    st.metric("Priority", f"{priority_colors.get(priority, '⚪')} {priority.upper()}")
+                                
+                                with col_w2:
+                                    human_review = result.get("human_review_required", False)
+                                    st.metric("Human Review", "Required" if human_review else "Not Required")
+                                
+                                with col_w3:
+                                    workflow_history = result.get("workflow_history", [])
+                                    agents_used = len(set(s.get("step") for s in workflow_history if s.get("step") != "supervisor"))
+                                    st.metric("Agents Used", agents_used)
+                                
+                                # Workflow Steps Visualization
+                                if result.get("workflow_history"):
+                                    with st.expander("📜 View Workflow Steps", expanded=False):
+                                        workflow_steps = []
+                                        for step in result["workflow_history"]:
+                                            step_name = step.get("step", "unknown")
+                                            if step_name != "supervisor":
+                                                action = step.get("action", step.get("decision", ""))
+                                                if action:
+                                                    workflow_steps.append(f"**{step_name.replace('_', ' ').title()}**: {action}")
+                                        
+                                        if workflow_steps:
+                                            for i, step in enumerate(workflow_steps, 1):
+                                                st.markdown(f"{i}. {step}")
+                            
                             st.session_state["last_claim_id"] = result["claim_id"]
                         else:
                             st.error(f"❌ Error: {response.json().get('detail', 'Unknown error')}")
@@ -570,6 +632,34 @@ with tab2:
                     with col_det2:
                         with st.expander("✅ Approval Details", expanded=True):
                             st.info(claim.get("approval_reason", "No details available"))
+                    
+                    # Workflow Info Section (NEW - for supervisor workflow)
+                    st.markdown("### 🎯 Multi-Agent Workflow")
+                    
+                    # Show workflow architecture
+                    with st.expander("🔄 View Agent Workflow Architecture", expanded=False):
+                        try:
+                            arch_response = requests.get(f"{API_BASE_URL}/workflow/architecture", timeout=5)
+                            if arch_response.status_code == 200:
+                                arch = arch_response.json()
+                                st.markdown(f"**System Type:** {arch.get('type', 'N/A')}")
+                                st.markdown(f"**Version:** {arch.get('version', 'N/A')}")
+                                st.code(arch.get('flow', 'N/A'), language=None)
+                        except:
+                            st.info("Workflow architecture info not available")
+                    
+                    # Show agents info
+                    with st.expander("🤖 View Available Agents", expanded=False):
+                        try:
+                            agents_response = requests.get(f"{API_BASE_URL}/workflow/agents", timeout=5)
+                            if agents_response.status_code == 200:
+                                agents = agents_response.json()
+                                for agent_key, agent_info in agents.items():
+                                    st.markdown(f"**{agent_info['name']}**")
+                                    st.caption(agent_info['description'])
+                                    st.markdown("---")
+                        except:
+                            st.info("Agent info not available")
                     
                     # Images Section
                     with st.expander("📸 Claim Images"):
@@ -734,6 +824,360 @@ with tab3:
             st.session_state.messages = []
             st.rerun()
 
+
+# Tab 4: System Architecture
+with tab4:
+    st.markdown("### 🏗️ System Architecture & Agent Workflow")
+    st.markdown("Explore how our AI-powered multi-agent system processes insurance claims.")
+    
+    # Architecture Overview
+    st.markdown("---")
+    st.markdown("## 🎯 Supervisor-Based Multi-Agent Architecture")
+    
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #1E3A5F 0%, #2C5282 100%); 
+                padding: 1.5rem; border-radius: 12px; color: white; margin-bottom: 1.5rem;">
+        <h3 style="margin:0; color: white;">How It Works</h3>
+        <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">
+            Our system uses a <strong>Supervisor Agent</strong> that intelligently coordinates 
+            specialized AI agents to process your claim. Each agent has specific expertise, 
+            and the supervisor routes your claim to the right agents based on complexity and risk.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Visual Workflow Diagram
+    st.markdown("### 📊 Claim Processing Workflow")
+    
+    st.markdown("""
+    ```
+                                    ┌─────────────────┐
+                                    │   📥 NEW CLAIM  │
+                                    └────────┬────────┘
+                                             │
+                                             ▼
+                        ┌────────────────────────────────────────┐
+                        │         🎯 SUPERVISOR AGENT            │
+                        │                                        │
+                        │  • Analyzes claim complexity           │
+                        │  • Determines routing strategy         │
+                        │  • Coordinates agent execution         │
+                        └────────────────────┬───────────────────┘
+                                             │
+                              ┌──────────────┴──────────────┐
+                              │       SMART ROUTING         │
+                              └──────────────┬──────────────┘
+                                             │
+         ┌───────────────┬───────────────────┼───────────────────┬───────────────┐
+         │               │                   │                   │               │
+         ▼               ▼                   ▼                   ▼               ▼
+    ┌─────────┐    ┌─────────┐         ┌─────────┐         ┌─────────┐    ┌─────────┐
+    │   📄    │    │   ✓     │         │   🔍    │         │   ✅    │    │   👤    │
+    │  DOC    │    │ VALID-  │         │  FRAUD  │         │APPROVAL │    │ HUMAN   │
+    │ANALYZER │    │ ATION   │         │  INVEST │         │  AGENT  │    │ REVIEW  │
+    └─────────┘    └─────────┘         └─────────┘         └─────────┘    └─────────┘
+         │               │                   │                   │               │
+         └───────────────┴───────────────────┴───────────────────┴───────────────┘
+                                             │
+                                             ▼
+                                    ┌─────────────────┐
+                                    │   ✅ COMPLETE   │
+                                    └─────────────────┘
+    ```
+    """)
+    
+    st.markdown("---")
+    
+    # Agent Cards
+    st.markdown("### 🤖 Meet Our AI Agents")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    padding: 1.5rem; border-radius: 12px; color: white; height: 280px;">
+            <h3 style="margin:0; color: white;">🎯 Supervisor Agent</h3>
+            <p style="font-size: 0.9rem; margin-top: 0.5rem;">
+                <strong>Role:</strong> Central Coordinator
+            </p>
+            <ul style="font-size: 0.85rem; padding-left: 1.2rem; margin-top: 0.5rem;">
+                <li>Analyzes claim complexity</li>
+                <li>Routes to appropriate agents</li>
+                <li>Handles escalation decisions</li>
+                <li>Coordinates parallel execution</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); 
+                    padding: 1.5rem; border-radius: 12px; color: white; height: 280px; margin-top: 1rem;">
+            <h3 style="margin:0; color: white;">✅ Approval Agent</h3>
+            <p style="font-size: 0.9rem; margin-top: 0.5rem;">
+                <strong>Role:</strong> Decision Maker
+            </p>
+            <ul style="font-size: 0.85rem; padding-left: 1.2rem; margin-top: 0.5rem;">
+                <li>Makes approval decisions</li>
+                <li>Calculates payout amounts</li>
+                <li>Determines processing time</li>
+                <li>Applies business rules</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
+                    padding: 1.5rem; border-radius: 12px; color: white; height: 280px;">
+            <h3 style="margin:0; color: white;">📄 Document Analyzer</h3>
+            <p style="font-size: 0.9rem; margin-top: 0.5rem;">
+                <strong>Role:</strong> Document Expert
+            </p>
+            <ul style="font-size: 0.85rem; padding-left: 1.2rem; margin-top: 0.5rem;">
+                <li>Analyzes damage photos with AI</li>
+                <li>Detects duplicate images</li>
+                <li>Assesses document quality</li>
+                <li>Extracts key information</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
+                    padding: 1.5rem; border-radius: 12px; color: white; height: 280px; margin-top: 1rem;">
+            <h3 style="margin:0; color: white;">✓ Validation Agent</h3>
+            <p style="font-size: 0.9rem; margin-top: 0.5rem;">
+                <strong>Role:</strong> Eligibility Checker
+            </p>
+            <ul style="font-size: 0.85rem; padding-left: 1.2rem; margin-top: 0.5rem;">
+                <li>Checks filing timeline</li>
+                <li>Verifies policy status</li>
+                <li>Validates coverage match</li>
+                <li>Confirms required documents</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); 
+                    padding: 1.5rem; border-radius: 12px; color: white; height: 280px;">
+            <h3 style="margin:0; color: white;">🔍 Fraud Investigator</h3>
+            <p style="font-size: 0.9rem; margin-top: 0.5rem;">
+                <strong>Role:</strong> Risk Analyst
+            </p>
+            <ul style="font-size: 0.85rem; padding-left: 1.2rem; margin-top: 0.5rem;">
+                <li>Deep fraud analysis</li>
+                <li>Pattern detection</li>
+                <li>Repair shop verification</li>
+                <li>Customer history check</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); 
+                    padding: 1.5rem; border-radius: 12px; color: #333; height: 280px; margin-top: 1rem;">
+            <h3 style="margin:0; color: #333;">👤 Human Review</h3>
+            <p style="font-size: 0.9rem; margin-top: 0.5rem;">
+                <strong>Role:</strong> Escalation Handler
+            </p>
+            <ul style="font-size: 0.85rem; padding-left: 1.2rem; margin-top: 0.5rem;">
+                <li>Handles edge cases</li>
+                <li>Reviews high-risk claims</li>
+                <li>Manual decision support</li>
+                <li>Quality assurance</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Routing Logic
+    st.markdown("### 🔀 Intelligent Routing Logic")
+    
+    col_route1, col_route2 = st.columns(2)
+    
+    with col_route1:
+        st.markdown("""
+        <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 12px; border-left: 4px solid #3498db;">
+            <h4 style="margin:0; color: #1E3A5F;">📥 New Claim Arrives</h4>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                → If photos attached: <strong>Document Analyzer</strong> first<br>
+                → If no photos: <strong>Validation Agent</strong> directly
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 12px; border-left: 4px solid #27ae60; margin-top: 1rem;">
+            <h4 style="margin:0; color: #1E3A5F;">✓ After Validation</h4>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                → If INVALID: Claim <strong>DENIED</strong><br>
+                → If VALID + High Risk: <strong>Fraud Investigation</strong><br>
+                → If VALID + Low Risk: <strong>Approval Agent</strong>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_route2:
+        st.markdown("""
+        <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 12px; border-left: 4px solid #f39c12;">
+            <h4 style="margin:0; color: #1E3A5F;">🔍 High-Risk Triggers</h4>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                • Claim amount > $30,000<br>
+                • Fraud score > 0.5<br>
+                • High-complexity claim types<br>
+                • Multiple risk indicators
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 12px; border-left: 4px solid #e74c3c; margin-top: 1rem;">
+            <h4 style="margin:0; color: #1E3A5F;">👤 Human Review Triggers</h4>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                • Fraud score > 0.8<br>
+                • Approval status = NEEDS_REVIEW<br>
+                • Critical priority claims<br>
+                • Edge cases requiring judgment
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Technology Stack
+    st.markdown("### 🛠️ Technology Stack")
+    
+    col_tech1, col_tech2, col_tech3, col_tech4 = st.columns(4)
+    
+    with col_tech1:
+        st.markdown("""
+        <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 12px;">
+            <h1 style="margin: 0; font-size: 2.5rem;">🧠</h1>
+            <h4 style="margin: 0.5rem 0 0 0;">LangGraph</h4>
+            <p style="font-size: 0.8rem; color: #666; margin: 0;">Multi-Agent Orchestration</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_tech2:
+        st.markdown("""
+        <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 12px;">
+            <h1 style="margin: 0; font-size: 2.5rem;">☁️</h1>
+            <h4 style="margin: 0.5rem 0 0 0;">OCI GenAI</h4>
+            <p style="font-size: 0.8rem; color: #666; margin: 0;">Cohere Command-A LLM</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_tech3:
+        st.markdown("""
+        <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 12px;">
+            <h1 style="margin: 0; font-size: 2.5rem;">🗄️</h1>
+            <h4 style="margin: 0.5rem 0 0 0;">Oracle 23ai</h4>
+            <p style="font-size: 0.8rem; color: #666; margin: 0;">Vector Store + Database</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_tech4:
+        st.markdown("""
+        <div style="text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 12px;">
+            <h1 style="margin: 0; font-size: 2.5rem;">🖼️</h1>
+            <h4 style="margin: 0.5rem 0 0 0;">CLIP Model</h4>
+            <p style="font-size: 0.8rem; color: #666; margin: 0;">Image Fraud Detection</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Live System Stats
+    st.markdown("### 📈 Live System Statistics")
+    
+    try:
+        stats_response = requests.get(f"{API_BASE_URL}/workflow/stats", timeout=5)
+        if stats_response.status_code == 200:
+            stats = stats_response.json()
+            
+            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+            
+            with col_stat1:
+                st.metric("Total Claims", stats.get("total_claims", 0))
+            with col_stat2:
+                st.metric("Approved", stats.get("by_status", {}).get("APPROVED", 0))
+            with col_stat3:
+                st.metric("Needs Review", stats.get("by_status", {}).get("NEEDS_REVIEW", 0))
+            with col_stat4:
+                st.metric("Avg Fraud Score", f"{stats.get('average_fraud_score', 0):.2f}")
+        else:
+            st.info("📊 System statistics will appear here when claims are processed.")
+    except:
+        st.info("📊 Connect to the API to view live statistics.")
+    
+    # External APIs Section
+    st.markdown("---")
+    st.markdown("### 🔌 External API Integrations")
+    
+    col_api1, col_api2, col_api3 = st.columns(3)
+    
+    with col_api1:
+        st.markdown("""
+        <div style="background: white; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0;">
+            <h4 style="margin: 0;">🚗 Car Damage API</h4>
+            <p style="font-size: 0.85rem; color: #666; margin: 0.5rem 0 0 0;">
+                Arya.ai - AI damage detection from photos
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: white; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-top: 0.5rem;">
+            <h4 style="margin: 0;">📋 Policy Management</h4>
+            <p style="font-size: 0.85rem; color: #666; margin: 0.5rem 0 0 0;">
+                Vertafore - Policy lookup & coverage check
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_api2:
+        st.markdown("""
+        <div style="background: white; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0;">
+            <h4 style="margin: 0;">🔒 Fraud Scoring API</h4>
+            <p style="font-size: 0.85rem; color: #666; margin: 0.5rem 0 0 0;">
+                Fraud.ai - Risk assessment & indicators
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: white; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-top: 0.5rem;">
+            <h4 style="margin: 0;">💳 Payment API</h4>
+            <p style="font-size: 0.85rem; color: #666; margin: 0.5rem 0 0 0;">
+                Payment processing & disbursement
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_api3:
+        st.markdown("""
+        <div style="background: white; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0;">
+            <h4 style="margin: 0;">📄 Document API</h4>
+            <p style="font-size: 0.85rem; color: #666; margin: 0.5rem 0 0 0;">
+                Policy documents for RAG chatbot
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: white; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-top: 0.5rem;">
+            <h4 style="margin: 0;">🖼️ Image Vector Store</h4>
+            <p style="font-size: 0.85rem; color: #666; margin: 0.5rem 0 0 0;">
+                CLIP embeddings for fraud detection
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+
 # Enhanced Sidebar
 with st.sidebar:
     st.markdown("""
@@ -789,10 +1233,12 @@ with st.sidebar:
     st.markdown("### ✨ Features")
     st.markdown("""
     <ul style="color: rgba(255,255,255,0.9); padding-left: 1.2rem;">
-        <li>🤖 AI-Powered Processing</li>
-        <li>📸 Image Fraud Detection</li>
-        <li>💬 Smart Chatbot</li>
-        <li>⚡ Instant Decisions</li>
+        <li>🎯 Supervisor Multi-Agent</li>
+        <li>🤖 6 Specialized AI Agents</li>
+        <li>� Immage Fraud Detection</li>
+        <li>💬 RAG-Powered Chatbot</li>
+        <li>⚡ Intelligent Routing</li>
+        <li>👤 Human-in-the-Loop</li>
         <li>🔒 Secure & Compliant</li>
     </ul>
     """, unsafe_allow_html=True)

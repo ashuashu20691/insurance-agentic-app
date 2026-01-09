@@ -1,10 +1,13 @@
 """
 LangGraph State Definition for Claims Processing Workflow
+Supports both simple workflow and supervisor-based multi-agent workflow
 """
-from typing import TypedDict, Optional, List, Dict, Any
+from typing import TypedDict, Optional, List, Dict, Any, Literal
 from datetime import datetime
 
+
 class ClaimState(TypedDict, total=False):
+    """Base claim state for simple workflow (backward compatible)"""
     # Input fields
     claim_id: str
     policy_id: str
@@ -42,3 +45,46 @@ class ClaimState(TypedDict, total=False):
     current_step: str
     error: Optional[str]
     completed_at: Optional[str]
+
+
+class SupervisorClaimState(ClaimState, total=False):
+    """
+    Extended state for supervisor-based multi-agent workflow.
+    Includes supervisor decision fields and workflow tracking.
+    """
+    # Supervisor Agent fields
+    supervisor_decision: Literal["document_analyzer", "validation", "fraud_investigation", "approval", "human_review", "complete"]
+    supervisor_reasoning: str
+    supervisor_priority: Literal["low", "medium", "high", "critical"]
+    
+    # Complexity analysis
+    complexity_analysis: Dict[str, Any]
+    
+    # Document Analyzer Agent outputs
+    document_analysis: Dict[str, Any]
+    document_issues: List[str]
+    
+    # Fraud Investigation Agent outputs
+    fraud_investigation: Dict[str, Any]
+    
+    # Human Review fields
+    human_review_required: bool
+    human_review_reason: str
+    human_review_decision: str
+    human_reviewer_notes: str
+    
+    # Workflow tracking
+    workflow_history: List[Dict[str, Any]]
+    agents_invoked: List[str]
+    total_processing_time_ms: int
+
+
+class ChatState(TypedDict, total=False):
+    """State for chatbot interactions"""
+    chat_id: str
+    claim_id: Optional[str]
+    customer_id: Optional[str]
+    messages: List[Dict[str, str]]
+    current_question: str
+    context: Dict[str, Any]
+    sources: List[str]

@@ -1,11 +1,12 @@
 """
 FastAPI Backend for Insurance Claims Processing
+Supervisor-Based Multi-Agent System
 """
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 import base64
 import json
@@ -21,13 +22,16 @@ from database import (
     save_chat_message, get_chat_history,
     ImageVectorStore
 )
+# Import both legacy and supervisor workflows
 from agents import process_claim, InsuranceChatbotAgent
+from agents.supervisor_workflow import process_claim_with_supervisor
+from agents.supervisor_agent import ClaimsSupervisorAgent
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Insurance Claims Processing API",
-    description="Multi-agent system for processing insurance claims",
-    version="1.0.0"
+    description="Supervisor-based multi-agent system for processing insurance claims",
+    version="2.0.0"
 )
 
 # CORS middleware
@@ -39,9 +43,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize chatbot (lazy loading)
+# Initialize chatbot and supervisor (lazy loading)
 _chatbot = None
 _image_store = None
+_supervisor = None
 
 def get_chatbot():
     global _chatbot
@@ -54,6 +59,12 @@ def get_image_store():
     if _image_store is None:
         _image_store = ImageVectorStore()
     return _image_store
+
+def get_supervisor():
+    global _supervisor
+    if _supervisor is None:
+        _supervisor = ClaimsSupervisorAgent()
+    return _supervisor
 
 # Pydantic models
 class ClaimSubmission(BaseModel):
@@ -82,6 +93,10 @@ class ClaimResponse(BaseModel):
     deductible: float
     processing_days: int
     fraud_score: Optional[float]
+    # Supervisor workflow fields
+    supervisor_priority: Optional[str] = None
+    workflow_history: Optional[List[Dict[str, Any]]] = None
+    human_review_required: Optional[bool] = None
 
 class ChatResponse(BaseModel):
     answer: str
@@ -102,7 +117,7 @@ async def health_check():
 # Submit claim
 @app.post("/submit-claim", response_model=ClaimResponse)
 async def submit_claim(claim: ClaimSubmission):
-    """Submit a new insurance claim and process through workflow"""
+    """Submit a new insurance claim and process through supervisor workflow"""
     try:
         # Get customer_id from policy
         policy = get_policy(claim.policy_id)
@@ -114,8 +129,8 @@ async def submit_claim(claim: ClaimSubmission):
         claim_id = create_claim(claim_data)
         claim_data["claim_id"] = claim_id
         
-        # Process through workflow
-        result = process_claim(claim_data)
+        # Process through SUPERVISOR workflow (new multi-agent system)
+        result = process_claim_with_supervisor(claim_data)
         
         # Update claim in database with results
         update_claim(claim_id, {
@@ -138,9 +153,14 @@ async def submit_claim(claim: ClaimSubmission):
             payout_amount=result.get("payout_amount", 0),
             deductible=result.get("deductible", 0),
             processing_days=result.get("processing_days", 0),
-            fraud_score=result.get("fraud_score")
+            fraud_score=result.get("fraud_score"),
+            supervisor_priority=result.get("supervisor_priority"),
+            workflow_history=result.get("workflow_history"),
+            human_review_required=result.get("human_review_required", False)
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 # Submit claim with images (multipart form)
@@ -209,8 +229,8 @@ async def submit_claim_with_images(
         # Add image fraud info to claim data for workflow
         claim_data["image_fraud_check"] = image_fraud_check
         
-        # Process through workflow
-        result = process_claim(claim_data)
+        # Process through SUPERVISOR workflow (new multi-agent system)
+        result = process_claim_with_supervisor(claim_data)
         
         # Adjust fraud score if duplicate images detected
         fraud_score = result.get("fraud_score", 0)
@@ -239,7 +259,10 @@ async def submit_claim_with_images(
             payout_amount=result.get("payout_amount", 0),
             deductible=result.get("deductible", 0),
             processing_days=result.get("processing_days", 0),
-            fraud_score=fraud_score
+            fraud_score=fraud_score,
+            supervisor_priority=result.get("supervisor_priority"),
+            workflow_history=result.get("workflow_history"),
+            human_review_required=result.get("human_review_required", False)
         )
     except Exception as e:
         import traceback
@@ -364,6 +387,171 @@ async def get_image_store_stats():
         image_store = get_image_store()
         count = image_store.get_image_count()
         return {"total_images": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============== SUPERVISOR WORKFLOW ENDPOINTS ==============
+
+@app.get("/workflow/agents")
+async def get_workflow_agents():
+    """Get information about all agents in the supervisor workflow"""
+    return {
+        "supervisor": {
+            "name": "Supervisor Agent",
+            "description": "Central coordinator that orchestrates all specialized agents",
+            "responsibilities": [
+                "Analyze claim complexity",
+                "Route claims to appropriate agents",
+                "Coordinate parallel execution",
+                "Handle human-in-the-loop escalation"
+            ]
+        },
+        "document_analyzer": {
+            "name": "Document Analyzer Agent",
+            "description": "Analyzes uploaded documents and damage photos",
+            "responsibilities": [
+                "Analyze damage photos using AI",
+                "Check for duplicate/fraudulent images",
+                "Assess document quality and completeness"
+            ]
+        },
+        "validation": {
+            "name": "Validation Agent",
+            "description": "Validates claim eligibility",
+            "responsibilities": [
+                "Check filing timeline (30-day limit)",
+                "Verify policy active status",
+                "Match coverage type",
+                "Verify required documents",
+                "Validate damage estimate"
+            ]
+        },
+        "fraud_investigation": {
+            "name": "Fraud Investigation Agent",
+            "description": "Deep fraud analysis for suspicious claims",
+            "responsibilities": [
+                "Comprehensive fraud scoring",
+                "Pattern analysis across claims",
+                "Repair shop reputation check",
+                "Customer history analysis"
+            ]
+        },
+        "approval": {
+            "name": "Approval Agent",
+            "description": "Makes final approval decisions",
+            "responsibilities": [
+                "Process approval decision",
+                "Calculate payout amount",
+                "Determine processing timeline"
+            ]
+        },
+        "human_review": {
+            "name": "Human Review Handler",
+            "description": "Escalates complex cases for human review",
+            "responsibilities": [
+                "Flag claims requiring manual review",
+                "Prepare case summary for reviewers"
+            ]
+        }
+    }
+
+@app.get("/workflow/architecture")
+async def get_workflow_architecture():
+    """Get the supervisor workflow architecture diagram"""
+    return {
+        "type": "supervisor_based_multi_agent",
+        "version": "2.0",
+        "description": "Hierarchical multi-agent system with central supervisor coordination",
+        "flow": """
+                    ┌─────────────┐
+                    │   START     │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+              ┌────►│ SUPERVISOR  │◄────┐
+              │     └──────┬──────┘     │
+              │            │            │
+              │     ┌──────┴──────┐     │
+              │     │   ROUTER    │     │
+              │     └──────┬──────┘     │
+              │            │            │
+        ┌─────┴─────┬──────┼──────┬─────┴─────┐
+        │           │      │      │           │
+        ▼           ▼      ▼      ▼           ▼
+    ┌───────┐  ┌────────┐ ┌────┐ ┌──────┐ ┌───────┐
+    │DOC    │  │VALIDATE│ │FRAUD│ │APPROVE│ │HUMAN │
+    │ANALYZE│  │        │ │INV  │ │       │ │REVIEW│
+    └───┬───┘  └───┬────┘ └──┬──┘ └───┬───┘ └───┬───┘
+        │          │         │        │         │
+        └──────────┴─────────┴────────┴─────────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │    END      │
+                    └─────────────┘
+        """,
+        "routing_logic": {
+            "started": "If photos present → document_analyzer, else → validation",
+            "document_analysis_complete": "→ validation",
+            "validation_complete": {
+                "INVALID": "→ complete (denied)",
+                "VALID + high_complexity": "→ fraud_investigation",
+                "VALID + low_complexity": "→ approval"
+            },
+            "fraud_investigation_complete": {
+                "fraud_score > 0.8": "→ human_review",
+                "fraud_score <= 0.8": "→ approval"
+            },
+            "approval_complete": {
+                "NEEDS_REVIEW": "→ human_review",
+                "APPROVED/DENIED": "→ complete"
+            }
+        }
+    }
+
+@app.get("/workflow/stats")
+async def get_workflow_stats():
+    """Get statistics about workflow processing"""
+    try:
+        claims = get_all_claims()
+        
+        stats = {
+            "total_claims": len(claims),
+            "by_status": {
+                "APPROVED": 0,
+                "DENIED": 0,
+                "NEEDS_REVIEW": 0,
+                "PENDING": 0
+            },
+            "by_priority": {
+                "low": 0,
+                "medium": 0,
+                "high": 0,
+                "critical": 0
+            },
+            "average_fraud_score": 0,
+            "human_review_required": 0
+        }
+        
+        total_fraud_score = 0
+        fraud_count = 0
+        
+        for claim in claims:
+            status = claim.get("approval_status", "PENDING")
+            if status in stats["by_status"]:
+                stats["by_status"][status] += 1
+            else:
+                stats["by_status"]["PENDING"] += 1
+            
+            if claim.get("fraud_score"):
+                total_fraud_score += claim["fraud_score"]
+                fraud_count += 1
+        
+        if fraud_count > 0:
+            stats["average_fraud_score"] = round(total_fraud_score / fraud_count, 3)
+        
+        return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
