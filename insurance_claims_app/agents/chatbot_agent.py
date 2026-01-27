@@ -98,6 +98,8 @@ class InsuranceChatbotAgent:
                 return self._answer_processing_time(claim_id)
             elif "status" in question_lower:
                 return self._answer_status(claim_id)
+            elif any(word in question_lower for word in ["risk", "risky", "fraud", "why flagged", "why high", "suspicious", "duplicate"]):
+                return self._answer_fraud_risk(claim_id)
         
         # RAG search using Oracle Vector Store
         query_embedding = self.embedding_model.encode(question).tolist()
@@ -265,6 +267,104 @@ Current Claim Information:
         return {
             "answer": "I couldn't find this claim. Please verify your claim ID.",
             "sources": [],
+            "claim_id": claim_id
+        }
+    
+    def _answer_fraud_risk(self, claim_id: str) -> Dict[str, Any]:
+        """Answer fraud risk question with detailed explanation"""
+        claim = get_claim(claim_id)
+        if not claim:
+            return {
+                "answer": "I couldn't find this claim. Please verify your claim ID.",
+                "sources": [],
+                "claim_id": claim_id
+            }
+        
+        fraud_score = claim.get('fraud_score', 0)
+        fraud_flags = claim.get('fraud_flags', [])
+        approval_reason = claim.get('approval_reason', '')
+        estimated_amount = claim.get('estimated_damage_amount', 0)
+        claim_type = claim.get('claim_type', 'unknown')
+        
+        # Parse fraud flags if it's a string
+        if isinstance(fraud_flags, str):
+            try:
+                import json
+                fraud_flags = json.loads(fraud_flags)
+            except:
+                fraud_flags = []
+        
+        # Determine risk level
+        if fraud_score >= 0.8:
+            risk_level = "🔴 HIGH RISK"
+            risk_emoji = "🚨"
+        elif fraud_score >= 0.5:
+            risk_level = "🟡 MODERATE RISK"
+            risk_emoji = "⚠️"
+        else:
+            risk_level = "🟢 LOW RISK"
+            risk_emoji = "✅"
+        
+        # Build detailed explanation
+        explanation = f"""**Fraud Risk Analysis for Claim {claim_id}**
+
+{risk_emoji} **Risk Level:** {risk_level}
+📊 **Fraud Score:** {fraud_score:.2f} (scale: 0.0 - 1.0)
+
+"""
+        
+        # Add risk factors
+        risk_factors = []
+        
+        # Check for duplicate image flag
+        if fraud_flags:
+            if "DUPLICATE_IMAGE_DETECTED" in fraud_flags or "DUPLICATE_IMAGE_FRAUD" in fraud_flags:
+                risk_factors.append("🖼️ **DUPLICATE IMAGE DETECTED** - The same or very similar image was found in another claim. This is a major fraud indicator.")
+            for flag in fraud_flags:
+                if flag not in ["DUPLICATE_IMAGE_DETECTED", "DUPLICATE_IMAGE_FRAUD"]:
+                    risk_factors.append(f"⚠️ {flag}")
+        
+        # Check claim amount
+        if estimated_amount > 30000:
+            risk_factors.append(f"💰 **High Claim Amount** - ${estimated_amount:,.2f} exceeds typical claim values")
+        
+        # Check approval reason for fraud indicators
+        if "fraud" in approval_reason.lower():
+            risk_factors.append(f"📋 **Approval Note:** {approval_reason}")
+        
+        # Add risk factors to explanation
+        if risk_factors:
+            explanation += "**🔍 Risk Factors Detected:**\n"
+            for factor in risk_factors:
+                explanation += f"• {factor}\n"
+            explanation += "\n"
+        else:
+            if fraud_score >= 0.5:
+                explanation += "**🔍 Risk Factors:**\n"
+                explanation += "• Multiple automated checks flagged potential concerns\n"
+                explanation += "• Claim patterns matched known fraud indicators\n\n"
+            else:
+                explanation += "**✅ No significant risk factors detected.**\n\n"
+        
+        # Add recommendation
+        if fraud_score >= 0.8:
+            explanation += """**📌 What This Means:**
+This claim has been flagged for manual review due to high fraud risk indicators. 
+A claims specialist will review the details before final approval.
+
+If you believe this is an error, please contact our fraud investigation team with any additional documentation."""
+        elif fraud_score >= 0.5:
+            explanation += """**📌 What This Means:**
+This claim has moderate risk indicators and may require additional verification.
+Processing may take longer than usual while we verify the claim details."""
+        else:
+            explanation += """**📌 What This Means:**
+This claim passed our automated fraud checks with no significant concerns.
+Standard processing times apply."""
+        
+        return {
+            "answer": explanation,
+            "sources": ["Fraud Analysis", "Claim Data"],
             "claim_id": claim_id
         }
     
