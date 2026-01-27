@@ -116,6 +116,16 @@ class ClaimsSupervisorAgent:
             complexity_score += 2
             complexity_factors.append(f"Moderate fraud risk: {fraud_score:.2f}")
         
+        # Factor 6: Image fraud detection (duplicate images)
+        image_fraud_check = state.get("image_fraud_check", {})
+        if image_fraud_check.get("is_potential_duplicate"):
+            complexity_score += 4  # High weight for duplicate images
+            similar_claims = image_fraud_check.get("similar_claims", [])
+            similarity = image_fraud_check.get("highest_similarity", 0)
+            complexity_factors.append(
+                f"DUPLICATE IMAGE: {similarity:.2%} match with claims {similar_claims}"
+            )
+        
         # Determine priority level
         if complexity_score >= 6:
             priority = "critical"
@@ -186,22 +196,43 @@ class ClaimsSupervisorAgent:
             # 2. High claim amount (> $30,000)
             # 3. High-risk claim types
             # 4. Existing fraud score > 0.5
+            # 5. Duplicate images detected (image fraud)
             amount = state.get("estimated_damage_amount", 0)
             claim_type = state.get("claim_type", "").lower()
             high_risk_types = ["total_loss", "theft", "vandalism", "fire"]
+            
+            # Check for image fraud from API
+            image_fraud_check = state.get("image_fraud_check", {})
+            has_duplicate_images = image_fraud_check.get("is_potential_duplicate", False)
             
             needs_fraud_investigation = (
                 complexity["priority"] in ["high", "critical"] or
                 fraud_score > 0.5 or
                 amount > 30000 or
-                claim_type in high_risk_types
+                claim_type in high_risk_types or
+                has_duplicate_images  # Always investigate if duplicate images detected
             )
             
             if needs_fraud_investigation:
+                # Build detailed reasoning
+                reasons = []
+                if complexity["priority"] in ["high", "critical"]:
+                    reasons.append(f"Priority: {complexity['priority']}")
+                if fraud_score > 0.5:
+                    reasons.append(f"Fraud score: {fraud_score:.2f}")
+                if amount > 30000:
+                    reasons.append(f"High amount: ${amount:,.2f}")
+                if claim_type in high_risk_types:
+                    reasons.append(f"High-risk type: {claim_type}")
+                if has_duplicate_images:
+                    similar_claims = image_fraud_check.get("similar_claims", [])
+                    similarity = image_fraud_check.get("highest_similarity", 0)
+                    reasons.append(f"DUPLICATE IMAGE DETECTED (similarity: {similarity:.2%}, found in claims: {similar_claims})")
+                
                 return SupervisorDecision(
                     next_agent="fraud_investigation",
-                    reasoning=f"High complexity claim requires fraud investigation. Priority: {complexity['priority']}, Amount: ${amount:,.2f}, Type: {claim_type}. Factors: {', '.join(complexity['complexity_factors']) if complexity['complexity_factors'] else 'Multiple risk indicators'}",
-                    priority=complexity["priority"],
+                    reasoning=f"Fraud investigation required. {'; '.join(reasons)}. Factors: {', '.join(complexity['complexity_factors']) if complexity['complexity_factors'] else 'Multiple risk indicators'}",
+                    priority="critical" if has_duplicate_images else complexity["priority"],
                     parallel_agents=[]
                 )
             else:

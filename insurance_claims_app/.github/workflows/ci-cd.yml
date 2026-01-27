@@ -1,0 +1,288 @@
+# =============================================================================
+# Insurance Claims App - CI/CD Pipeline
+# Vibe-Coding Approach: AI-assisted development with automated guardrails
+# =============================================================================
+
+name: Insurance Claims CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_env:
+        description: 'Deployment environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [dev, staging, prod]
+
+env:
+  PYTHON_VERSION: '3.9'
+  OCI_REGION: 'us-chicago-1'
+  REGISTRY: '${{ secrets.OCI_REGION }}.ocir.io'
+  IMAGE_NAME: 'insurance-claims-app'
+
+jobs:
+  # ===========================================================================
+  # Stage 1: Code Quality & Security (The Guardrails)
+  # ===========================================================================
+  quality-gates:
+    name: 🛡️ Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r insurance_claims_app/requirements.txt
+          pip install ruff bandit safety pytest pytest-cov
+
+      - name: 🔍 Lint with Ruff
+        run: ruff check insurance_claims_app/ --output-format=github
+
+      - name: 🔐 Security scan with Bandit
+        run: bandit -r insurance_claims_app/ -ll -ii -x tests
+
+      - name: 📦 Dependency vulnerability check
+        run: safety check -r insurance_claims_app/requirements.txt
+        continue-on-error: true
+
+      - name: 🧪 Run tests
+        run: |
+          cd insurance_claims_app
+          pytest tests/ -v --cov=. --cov-report=xml
+        env:
+          ORACLE_USER: test_user
+          ORACLE_PASSWORD: test_pass
+          ORACLE_DSN: localhost:1521/FREEPDB1
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: insurance_claims_app/coverage.xml
+
+  # ===========================================================================
+  # Stage 2: Terraform Validation
+  # ===========================================================================
+  terraform-validate:
+    name: 🏗️ Terraform Validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: insurance_claims_app/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: 🔒 Terraform Security Scan
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: insurance_claims_app/terraform
+
+  # ===========================================================================
+  # Stage 3: Build Container Images
+  # ===========================================================================
+  build:
+    name: 🐳 Build Images
+    needs: [quality-gates, terraform-validate]
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.OCI_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+
+      - name: Login to OCI Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.OCI_NAMESPACE }}/${{ secrets.OCI_USERNAME }}
+          password: ${{ secrets.OCI_AUTH_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: insurance_claims_app
+          target: api
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY }}/${{ secrets.OCI_NAMESPACE }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push UI image
+        uses: docker/build-push-action@v5
+        with:
+          context: insurance_claims_app
+          target: ui
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY }}/${{ secrets.OCI_NAMESPACE }}/${{ env.IMAGE_NAME }}-ui:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ===========================================================================
+  # Stage 4: Deploy Infrastructure (Terraform)
+  # ===========================================================================
+  deploy-infra:
+    name: 🚀 Deploy Infrastructure
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: insurance_claims_app/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure OCI credentials
+        run: |
+          mkdir -p ~/.oci
+          echo "${{ secrets.OCI_CONFIG }}" > ~/.oci/config
+          echo "${{ secrets.OCI_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="namespace=${{ secrets.OCI_NAMESPACE }}" \
+            -backend-config="region=${{ env.OCI_REGION }}"
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+        env:
+          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
+          TF_VAR_fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          TF_VAR_adb_admin_password: ${{ secrets.ADB_ADMIN_PASSWORD }}
+          TF_VAR_adb_wallet_password: ${{ secrets.ADB_WALLET_PASSWORD }}
+          TF_VAR_app_oracle_password: ${{ secrets.APP_ORACLE_PASSWORD }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Save outputs
+        id: tf-outputs
+        run: |
+          echo "app_ip=$(terraform output -raw app_public_ip)" >> $GITHUB_OUTPUT
+          echo "ui_url=$(terraform output -raw streamlit_ui_url)" >> $GITHUB_OUTPUT
+
+  # ===========================================================================
+  # Stage 5: Deploy Application
+  # ===========================================================================
+  deploy-app:
+    name: 📦 Deploy Application
+    needs: [build, deploy-infra]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to instance
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ needs.deploy-infra.outputs.app_ip }}
+          username: opc
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Pull latest images
+            docker pull ${{ env.REGISTRY }}/${{ secrets.OCI_NAMESPACE }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}
+            docker pull ${{ env.REGISTRY }}/${{ secrets.OCI_NAMESPACE }}/${{ env.IMAGE_NAME }}-ui:${{ github.sha }}
+            
+            # Update and restart services
+            cd /opt/insurance-claims
+            docker-compose down
+            
+            # Update image tags
+            sed -i "s|image:.*api.*|image: ${{ env.REGISTRY }}/${{ secrets.OCI_NAMESPACE }}/${{ env.IMAGE_NAME }}-api:${{ github.sha }}|" docker-compose.yml
+            sed -i "s|image:.*ui.*|image: ${{ env.REGISTRY }}/${{ secrets.OCI_NAMESPACE }}/${{ env.IMAGE_NAME }}-ui:${{ github.sha }}|" docker-compose.yml
+            
+            docker-compose up -d
+            
+            # Health check
+            sleep 30
+            curl -f http://localhost:8000/health || exit 1
+
+  # ===========================================================================
+  # Stage 6: Smoke Tests
+  # ===========================================================================
+  smoke-tests:
+    name: 🔥 Smoke Tests
+    needs: deploy-app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run smoke tests
+        run: |
+          APP_URL="${{ needs.deploy-infra.outputs.ui_url }}"
+          
+          # Test API health
+          curl -f "$APP_URL:8000/health" || exit 1
+          
+          # Test UI is accessible
+          curl -f "$APP_URL:8501" || exit 1
+          
+          # Test API endpoints
+          curl -f "$APP_URL:8000/policies" || exit 1
+          curl -f "$APP_URL:8000/workflow/agents" || exit 1
+          
+          echo "✅ All smoke tests passed!"
+
+  # ===========================================================================
+  # Notifications
+  # ===========================================================================
+  notify:
+    name: 📢 Notify
+    needs: [smoke-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          fields: repo,message,commit,author,action,eventName,workflow
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        if: ${{ secrets.SLACK_WEBHOOK != '' }}

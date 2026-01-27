@@ -241,7 +241,9 @@ def process_claim_with_supervisor(claim_data: Dict[str, Any], with_memory: bool 
         "incident_report": claim_data.get("incident_report", ""),
         "repair_estimate": claim_data.get("repair_estimate", ""),
         "current_step": "started",
-        "workflow_history": []
+        "workflow_history": [],
+        # Include image fraud check from API if available
+        "image_fraud_check": claim_data.get("image_fraud_check", {})
     }
     
     # Get compiled workflow and run

@@ -109,6 +109,7 @@ class ImageVectorStore:
             image_id: Unique identifier for the stored image
         """
         import uuid
+        import oracledb
         
         # Generate embedding
         embedding = self.get_image_embedding(image_bytes)
@@ -121,18 +122,20 @@ class ImageVectorStore:
         cursor = conn.cursor()
         
         try:
+            # For Oracle, BLOB must be the last bind variable to avoid ORA-24816
+            # Use a different column order in the INSERT statement
             cursor.execute("""
                 INSERT INTO damage_images 
-                (image_id, claim_id, image_name, image_data, embedding, damage_type, metadata)
-                VALUES (:1, :2, :3, :4, TO_VECTOR(:5, 512, FLOAT32), :6, :7)
+                (image_id, claim_id, image_name, embedding, damage_type, metadata, image_data)
+                VALUES (:1, :2, :3, TO_VECTOR(:4, 512, FLOAT32), :5, :6, :7)
             """, [
                 image_id,
                 claim_id,
                 image_name,
-                image_bytes,
                 embedding_str,
                 damage_type or "unknown",
-                json.dumps(metadata or {})
+                json.dumps(metadata or {}),
+                image_bytes  # BLOB must be last
             ])
             conn.commit()
             print(f"Stored image {image_name} with ID {image_id} for claim {claim_id}")
@@ -227,20 +230,28 @@ class ImageVectorStore:
         return results
     
     def check_for_duplicate_images(self, image_bytes: bytes, 
-                                   similarity_threshold: float = 0.90) -> Dict[str, Any]:
+                                   similarity_threshold: float = 0.85) -> Dict[str, Any]:
         """
         Check if an image is a potential duplicate (fraud indicator)
         
         Args:
             image_bytes: Image to check
             similarity_threshold: Threshold above which images are considered duplicates
+                                 (0.85 = 85% similar, catches near-identical images)
             
         Returns:
             Dict with fraud analysis results
         """
         similar_images = self.find_similar_images(image_bytes, k=3)
         
+        # Debug logging
+        print(f"[ImageVectorStore] Checking for duplicates, found {len(similar_images)} similar images")
+        for img in similar_images:
+            print(f"  - Claim {img['claim_id']}: similarity={img['similarity']:.4f}")
+        
         duplicates = [img for img in similar_images if img["similarity"] >= similarity_threshold]
+        
+        print(f"[ImageVectorStore] Duplicates above threshold ({similarity_threshold}): {len(duplicates)}")
         
         return {
             "is_potential_duplicate": len(duplicates) > 0,

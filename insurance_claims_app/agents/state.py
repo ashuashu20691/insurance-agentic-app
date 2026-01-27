@@ -64,6 +64,9 @@ class SupervisorClaimState(ClaimState, total=False):
     document_analysis: Dict[str, Any]
     document_issues: List[str]
     
+    # Image fraud detection from API (vector store)
+    image_fraud_check: Dict[str, Any]
+    
     # Fraud Investigation Agent outputs
     fraud_investigation: Dict[str, Any]
     

@@ -71,6 +71,14 @@ class InsuranceChatbotAgent:
     
     def answer_question(self, question: str, claim_id: Optional[str] = None) -> Dict[str, Any]:
         """Answer a customer question using RAG with Oracle Vector Store"""
+        # Try to extract claim_id from the question if not provided
+        if not claim_id:
+            import re
+            claim_match = re.search(r'CLM-[A-Z0-9]{8}', question.upper())
+            if claim_match:
+                claim_id = claim_match.group(0)
+                print(f"[Chatbot] Extracted claim_id from question: {claim_id}")
+        
         # Get claim and policy context if available
         claim_context = ""
         if claim_id:
@@ -84,7 +92,7 @@ class InsuranceChatbotAgent:
         if claim_id:
             if "deductible" in question_lower:
                 return self._answer_deductible(claim_id)
-            elif "payout" in question_lower or "payment amount" in question_lower:
+            elif any(word in question_lower for word in ["payout", "payment amount", "breakdown", "how much", "calculate", "approved amount"]):
                 return self._answer_payout(claim_id)
             elif "when" in question_lower and ("paid" in question_lower or "payment" in question_lower or "process" in question_lower):
                 return self._answer_processing_time(claim_id)
@@ -163,16 +171,48 @@ Current Claim Information:
         }
     
     def _answer_payout(self, claim_id: str) -> Dict[str, Any]:
-        """Answer payout amount question"""
+        """Answer payout amount question with detailed breakdown"""
         claim = get_claim(claim_id)
         if claim:
             status = claim.get("approval_status", "PENDING")
-            if status == "APPROVED":
+            if status == "APPROVED" or status == "NEEDS_REVIEW":
                 payout = claim.get('payout_amount', 0)
                 deductible = claim.get('deductible', 0)
+                estimated_damage = claim.get('estimated_damage_amount', 0)
+                
+                # Get policy details for coverage limit
+                policy_id = claim.get('policy_id')
+                policy = get_policy(policy_id) if policy_id else None
+                coverage_limit = policy.get('coverage_limit', 50000) if policy else 50000
+                
+                # Calculate the breakdown
+                damage_after_deductible = max(0, estimated_damage - deductible)
+                capped_at_limit = min(damage_after_deductible, coverage_limit)
+                
+                breakdown = f"""Here's the detailed payout breakdown for claim {claim_id}:
+
+📊 **Payout Calculation:**
+┌─────────────────────────────────────────┐
+│ Estimated Damage Amount:    ${estimated_damage:>10,.2f} │
+│ Less: Deductible:          -${deductible:>10,.2f} │
+├─────────────────────────────────────────┤
+│ Subtotal:                   ${damage_after_deductible:>10,.2f} │
+│ Coverage Limit:             ${coverage_limit:>10,.2f} │
+├─────────────────────────────────────────┤
+│ **Final Payout Amount:**    ${payout:>10,.2f} │
+└─────────────────────────────────────────┘
+
+💡 **How it's calculated:**
+1. We start with the estimated damage: ${estimated_damage:,.2f}
+2. Subtract your deductible: ${deductible:,.2f}
+3. The result (${damage_after_deductible:,.2f}) is checked against your coverage limit (${coverage_limit:,.2f})
+4. Your approved payout is: **${payout:,.2f}**
+
+✅ Status: {status}"""
+                
                 return {
-                    "answer": f"Your approved payout amount is ${payout:,.2f}. This is calculated as the damage amount minus your ${deductible:,.2f} deductible.",
-                    "sources": ["Claim Data"],
+                    "answer": breakdown,
+                    "sources": ["Claim Data", "Policy Coverage"],
                     "claim_id": claim_id
                 }
             elif status == "DENIED":

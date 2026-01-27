@@ -76,6 +76,19 @@ class FraudInvestigationAgent:
             investigation_results["risk_factors"].append("Duplicate images detected from other claims")
             state["fraud_score"] = min(1.0, state["fraud_score"] + 0.2)
         
+        # 5b. Check for image fraud from API-level detection (image vector store)
+        image_fraud_check = state.get("image_fraud_check", {})
+        if image_fraud_check.get("is_potential_duplicate"):
+            similar_claims = image_fraud_check.get("similar_claims", [])
+            highest_similarity = image_fraud_check.get("highest_similarity", 0)
+            investigation_results["risk_factors"].append(
+                f"DUPLICATE IMAGE DETECTED: Same image found in claims {similar_claims} "
+                f"(similarity: {highest_similarity:.2%})"
+            )
+            # Significantly boost fraud score for duplicate images
+            state["fraud_score"] = min(1.0, state["fraud_score"] + 0.3)
+            state["fraud_flags"] = state.get("fraud_flags", []) + ["DUPLICATE_IMAGE_FRAUD"]
+        
         # 6. Calculate final recommendation
         final_score = state["fraud_score"]
         risk_count = len(investigation_results["risk_factors"])

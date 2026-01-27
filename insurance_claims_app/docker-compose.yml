@@ -1,0 +1,46 @@
+# =============================================================================
+# Docker Compose for Local Development
+# =============================================================================
+
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+    ports:
+      - "8000:8000"
+    environment:
+      - OCI_COMPARTMENT_ID=${OCI_COMPARTMENT_ID}
+      - OCI_SERVICE_ENDPOINT=${OCI_SERVICE_ENDPOINT}
+      - OCI_MODEL_ID=${OCI_MODEL_ID}
+      - ORACLE_USER=${ORACLE_USER}
+      - ORACLE_PASSWORD=${ORACLE_PASSWORD}
+      - ORACLE_DSN=${ORACLE_DSN}
+      - ORACLE_WALLET_LOCATION=/app/wallet
+    volumes:
+      - ./wallet:/app/wallet:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      target: ui
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  default:
+    name: insurance-claims-network

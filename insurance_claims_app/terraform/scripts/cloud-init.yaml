@@ -1,0 +1,149 @@
+#cloud-config
+# Cloud-init configuration for Insurance Claims App
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - python39
+  - python39-pip
+  - python39-devel
+  - git
+  - unzip
+  - oracle-instantclient-release-el8
+  - oracle-instantclient-basic
+  - oracle-instantclient-sqlplus
+
+write_files:
+  - path: /opt/insurance-claims/.env
+    permissions: '0600'
+    content: |
+      # OCI GenAI Configuration
+      OCI_COMPARTMENT_ID=${oci_compartment_id}
+      OCI_SERVICE_ENDPOINT=${oci_genai_endpoint}
+      OCI_MODEL_ID=${oci_genai_model_id}
+      
+      # External API Keys (mock implementations)
+      ARYA_API_KEY=mock_arya_key
+      FRAUD_API_KEY=mock_fraud_key
+      POLICY_API_KEY=mock_policy_key
+      
+      # Oracle Database Configuration
+      ORACLE_USER=${oracle_user}
+      ORACLE_PASSWORD=${oracle_password}
+      ORACLE_DSN=${adb_tns_name}
+      ORACLE_WALLET_LOCATION=/opt/insurance-claims/wallet
+      ORACLE_WALLET_PASSWORD=
+
+  - path: /etc/systemd/system/insurance-api.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Insurance Claims FastAPI Backend
+      After=network.target
+      
+      [Service]
+      Type=simple
+      User=opc
+      WorkingDirectory=/opt/insurance-claims/app
+      Environment="PATH=/opt/insurance-claims/venv/bin:/usr/local/bin:/usr/bin"
+      EnvironmentFile=/opt/insurance-claims/.env
+      ExecStart=/opt/insurance-claims/venv/bin/python run_api.py
+      Restart=always
+      RestartSec=10
+      
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/insurance-ui.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Insurance Claims Streamlit UI
+      After=network.target insurance-api.service
+      
+      [Service]
+      Type=simple
+      User=opc
+      WorkingDirectory=/opt/insurance-claims/app
+      Environment="PATH=/opt/insurance-claims/venv/bin:/usr/local/bin:/usr/bin"
+      EnvironmentFile=/opt/insurance-claims/.env
+      ExecStart=/opt/insurance-claims/venv/bin/python run_ui.py
+      Restart=always
+      RestartSec=10
+      
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /opt/insurance-claims/setup.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+      
+      echo "=== Setting up Insurance Claims Application ==="
+      
+      # Create directories
+      mkdir -p /opt/insurance-claims/{app,wallet,logs}
+      
+      # Download ADB wallet from Object Storage
+      echo "Downloading ADB wallet..."
+      oci os object get \
+        --bucket-name ${adb_wallet_bucket} \
+        --namespace ${adb_wallet_namespace} \
+        --name adb_wallet.zip \
+        --file /opt/insurance-claims/wallet/wallet.zip \
+        --auth instance_principal
+      
+      # Extract wallet
+      cd /opt/insurance-claims/wallet
+      unzip -o wallet.zip
+      
+      # Update sqlnet.ora for wallet location
+      sed -i 's|?/network/admin|/opt/insurance-claims/wallet|g' sqlnet.ora
+      
+      # Clone application (replace with your repo URL)
+      echo "Setting up application..."
+      # For now, we'll assume the app is uploaded separately
+      # git clone https://github.com/your-org/insurance-claims-app.git /opt/insurance-claims/app
+      
+      # Create virtual environment
+      echo "Creating Python virtual environment..."
+      python3.9 -m venv /opt/insurance-claims/venv
+      
+      # Install dependencies
+      echo "Installing Python dependencies..."
+      /opt/insurance-claims/venv/bin/pip install --upgrade pip
+      /opt/insurance-claims/venv/bin/pip install -r /opt/insurance-claims/app/requirements.txt
+      
+      # Set ownership
+      chown -R opc:opc /opt/insurance-claims
+      
+      # Enable and start services
+      echo "Starting services..."
+      systemctl daemon-reload
+      systemctl enable insurance-api insurance-ui
+      systemctl start insurance-api
+      sleep 10
+      systemctl start insurance-ui
+      
+      echo "=== Setup Complete ==="
+      echo "API: http://localhost:8000"
+      echo "UI: http://localhost:8501"
+
+runcmd:
+  # Install OCI CLI
+  - bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
+  
+  # Configure firewall
+  - firewall-cmd --permanent --add-port=8000/tcp
+  - firewall-cmd --permanent --add-port=8501/tcp
+  - firewall-cmd --reload
+  
+  # Run setup script (will need app files uploaded first)
+  # - /opt/insurance-claims/setup.sh
+
+final_message: |
+  Insurance Claims App instance provisioned.
+  Upload application files to /opt/insurance-claims/app
+  Then run: sudo /opt/insurance-claims/setup.sh
